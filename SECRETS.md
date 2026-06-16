@@ -1,19 +1,9 @@
 # GitHub Actions Secrets — EC2 Deployment
 
 The [deploy workflow](.github/workflows/deploy.yml) syncs `index.html` and
-`style.css` to the Nginx web root on your EC2 instance over SSH, then reloads
-Nginx. The web root and Nginx config are **derived from the domain** you
-provide:
-
-| Derived from `DOMAIN` | Path |
-| --------------------- | ---- |
-| Web root              | `/var/www/<domain>` |
-| Nginx server block    | `/etc/nginx/sites-available/<domain>` (symlinked into `sites-enabled`) |
-
-If no Nginx config exists for the domain yet, the workflow **creates one
-automatically** — an HTTPS config when a Let's Encrypt certificate is already
-present for the domain, otherwise an HTTP-only config you can later upgrade with
-Certbot. To make it run, add the following **repository secrets**.
+`style.css` to `/var/www/<domain>` on your EC2 instance over SSH, then reloads
+Nginx. Nginx setup and SSL are handled by your server-side scripts. Add the
+following **repository secrets** to make it run.
 
 ## Where to add them
 
@@ -64,44 +54,21 @@ MIIEpQIBAAKCAQEA...
 ### `DOMAIN` — the domain to serve
 
 Just the bare domain, e.g. `profile.example.com` (no `https://`, no trailing
-slash). The workflow uses it to derive everything:
-
-- **Web root:** `/var/www/profile.example.com`
-- **Nginx config:** `/etc/nginx/sites-available/profile.example.com`, symlinked
-  into `sites-enabled/`
-- **SSL paths** (when present): `/etc/letsencrypt/live/profile.example.com/`
-
-The generated server block also responds to the `www.` variant. If a config for
-the domain already exists, the workflow **leaves it untouched** and only updates
-the files — so any Certbot-managed config you already have is safe.
+slash). The workflow deploys the files to `/var/www/<domain>`, which should
+match the web root your Nginx setup script serves.
 
 ---
 
 ## One-time server preparation
 
-The workflow does the rest — it **installs Nginx** (if missing), creates the web
-root, writes the server block, and reloads Nginx. It just needs the deploy user
-to run `sudo` **without an interactive password prompt** (it installs packages,
-edits `nginx.conf`, and manages the site). Grant that once on the instance:
+Nginx and SSL are set up by your server-side scripts. The workflow only needs
+the deploy user to reload Nginx without a password prompt:
 
 ```bash
-# Allow the deploy user to run sudo without a password prompt.
-# Use a DEDICATED deploy user for this — it is broad by design so a single
-# push can install and configure everything.
-sudo tee /etc/sudoers.d/deploy >/dev/null <<EOF
-$USER ALL=(ALL) NOPASSWD: ALL
-EOF
-sudo chmod 440 /etc/sudoers.d/deploy
+echo "$USER ALL=(ALL) NOPASSWD: /bin/systemctl reload nginx" \
+  | sudo tee /etc/sudoers.d/deploy-nginx
+sudo chmod 440 /etc/sudoers.d/deploy-nginx
 ```
-
-That's it. Nothing else is required — no pre-installed Nginx, no pre-created web
-root or config.
-
-> **SSL:** if a Let's Encrypt certificate already exists for the domain
-> (`/etc/letsencrypt/live/<domain>/`), the workflow writes an HTTPS config that
-> uses it. If not, it writes an HTTP-only config; enable TLS afterwards with
-> `sudo certbot --nginx -d <domain>` and the next push picks up the cert
-> automatically.
 
 ---
 

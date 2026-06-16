@@ -1,165 +1,20 @@
 name: Deploy to AWS EC2
 
-# A push to main fully provisions the site on the EC2 instance:
-#   - installs Nginx if it isn't already present
-#   - creates the web root            -> /var/www/<domain>
-#   - writes the Nginx server block    -> /etc/nginx/sites-available/<domain>
-#     (HTTPS when a Let's Encrypt cert exists for the domain, else HTTP)
-#   - deploys the static files and reloads Nginx
-# Everything is derived from the DOMAIN secret and is idempotent — safe to
-# re-run on every push.
 on:
   push:
     branches: [main]
   workflow_dispatch:
 
-concurrency:
-  group: deploy-ec2
-  cancel-in-progress: true
-
-env:
-  EC2_HOST: ${{ secrets.EC2_HOST }}
-  EC2_USER: ${{ secrets.EC2_USER }}
-  EC2_PORT: ${{ secrets.EC2_PORT }}
-  DOMAIN: ${{ secrets.DOMAIN }}
-
 jobs:
   deploy:
-    name: Provision Nginx & deploy site
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Validate required secrets
+      - name: Deploy static files & reload Nginx
         run: |
-          missing=()
-          [ -z "$EC2_HOST" ] && missing+=("EC2_HOST")
-          [ -z "$EC2_USER" ] && missing+=("EC2_USER")
-          [ -z "$DOMAIN" ]   && missing+=("DOMAIN")
-          [ -z "${{ secrets.EC2_SSH_KEY }}" ] && missing+=("EC2_SSH_KEY")
-          if [ ${#missing[@]} -gt 0 ]; then
-            echo "::error::Missing required repository secret(s): ${missing[*]}"
-            echo "Add them under Settings → Secrets and variables → Actions. See SECRETS.md."
-            exit 1
-          fi
-          echo "All required secrets present. Domain: $DOMAIN"
-
-      - name: Set up SSH key
-        run: |
-          mkdir -p ~/.ssh
-          echo "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/deploy_key
-          chmod 600 ~/.ssh/deploy_key
-          ssh-keyscan -p "${EC2_PORT:-22}" -H "$EC2_HOST" >> ~/.ssh/known_hosts 2>/dev/null
-
-      - name: Install & configure Nginx for the domain
-        run: |
-          ssh -i ~/.ssh/deploy_key -p "${EC2_PORT:-22}" \
-            "${EC2_USER}@${EC2_HOST}" "DOMAIN='${DOMAIN}' bash -s" <<'REMOTE'
-            set -euo pipefail
-            : "${DOMAIN:?DOMAIN is empty — set the DOMAIN repository secret}"
-            WEBROOT="/var/www/${DOMAIN}"
-            AVAIL="/etc/nginx/sites-available/${DOMAIN}"
-            ENABLED="/etc/nginx/sites-enabled/${DOMAIN}"
-            CERT="/etc/letsencrypt/live/${DOMAIN}/fullchain.pem"
-            KEY="/etc/letsencrypt/live/${DOMAIN}/privkey.pem"
-
-            # 1. Install Nginx if it isn't already installed
-            if ! command -v nginx >/dev/null 2>&1; then
-              echo "Nginx not found, installing..."
-              if command -v apt-get >/dev/null 2>&1; then
-                sudo apt-get update -y
-                sudo apt-get install -y nginx
-              elif command -v dnf >/dev/null 2>&1; then
-                sudo dnf install -y nginx
-              elif command -v yum >/dev/null 2>&1; then
-                sudo yum install -y nginx
-              fi
-              sudo systemctl enable --now nginx
-            fi
-
-            # Some distros (Amazon Linux) ship without sites-* dirs — create them
-            # and make sure the main nginx.conf includes them.
-            sudo mkdir -p /etc/nginx/sites-available /etc/nginx/sites-enabled
-            if ! grep -q "sites-enabled" /etc/nginx/nginx.conf; then
-              sudo sed -i '/http {/a \    include /etc/nginx/sites-enabled/*;' /etc/nginx/nginx.conf
-            fi
-
-            # 2. Web root
-            sudo mkdir -p "$WEBROOT"
-            sudo chown -R "$USER":"$USER" "$WEBROOT"
-
-            # 3. Write the server block (idempotent — overwritten on every deploy)
-            if [ -f "$CERT" ] && [ -f "$KEY" ]; then
-              echo "SSL certificate found -> writing HTTPS config"
-              sudo tee "$AVAIL" >/dev/null <<EOF
-          server {
-              listen 80;
-              listen [::]:80;
-              server_name ${DOMAIN} www.${DOMAIN};
-              return 301 https://\$host\$request_uri;
-          }
-
-          server {
-              listen 443 ssl http2;
-              listen [::]:443 ssl http2;
-              server_name ${DOMAIN} www.${DOMAIN};
-
-              root ${WEBROOT};
-              index index.html;
-
-              ssl_certificate     ${CERT};
-              ssl_certificate_key ${KEY};
-
-              location / {
-                  try_files \$uri \$uri/ =404;
-              }
-          }
-          EOF
-            else
-              echo "No SSL certificate yet -> writing HTTP config"
-              echo "(enable HTTPS later with: sudo certbot --nginx -d ${DOMAIN})"
-              sudo tee "$AVAIL" >/dev/null <<EOF
-          server {
-              listen 80;
-              listen [::]:80;
-              server_name ${DOMAIN} www.${DOMAIN};
-
-              root ${WEBROOT};
-              index index.html;
-
-              location / {
-                  try_files \$uri \$uri/ =404;
-              }
-          }
-          EOF
-            fi
-
-            # 4. Enable this site, drop the default site if present
-            sudo ln -sf "$AVAIL" "$ENABLED"
-            sudo rm -f /etc/nginx/sites-enabled/default
-          REMOTE
-
-      - name: Deploy files to EC2 via rsync
-        run: |
-          rsync -avz --delete \
-            -e "ssh -i ~/.ssh/deploy_key -p ${EC2_PORT:-22}" \
-            --exclude='.git' \
-            --exclude='.github' \
-            --exclude='README.md' \
-            --exclude='SECRETS.md' \
-            index.html style.css \
-            "${EC2_USER}@${EC2_HOST}:/var/www/${DOMAIN}/"
-
-      - name: Validate and reload Nginx
-        run: |
-          ssh -i ~/.ssh/deploy_key -p "${EC2_PORT:-22}" \
-            "${EC2_USER}@${EC2_HOST}" \
-            "sudo nginx -t && sudo systemctl reload nginx"
-
-      - name: Deployment summary
-        run: |
-          echo "### ✅ Deployed to EC2" >> "$GITHUB_STEP_SUMMARY"
-          echo "Nginx configured and static site synced to \`/var/www/${DOMAIN}\`." >> "$GITHUB_STEP_SUMMARY"
-          echo "Site: https://${DOMAIN}" >> "$GITHUB_STEP_SUMMARY"
+          echo "${{ secrets.EC2_SSH_KEY }}" > key && chmod 600 key
+          ssh-keyscan -H "${{ secrets.EC2_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null
+          rsync -az --delete -e "ssh -i key" index.html style.css \
+            "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}:/var/www/${{ secrets.DOMAIN }}/"
+          ssh -i key "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}" "sudo systemctl reload nginx"

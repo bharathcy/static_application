@@ -18,20 +18,14 @@ static_application/
 
 ## 🚀 Deployment
 
-A single push to `main` (or a manual trigger) provisions everything. GitHub
-Actions:
+On every push to `main` (or a manual trigger), GitHub Actions:
 
-1. Connects to the EC2 instance over SSH.
-2. **Installs Nginx** if it isn't already present.
-3. Creates the web root (`/var/www/<domain>`) and **writes the Nginx server
-   block** for the `DOMAIN` — HTTPS when a Let's Encrypt cert is present for the
-   domain, otherwise HTTP-only.
-4. Syncs `index.html` and `style.css` into the web root with `rsync`.
-5. Validates the Nginx config and reloads it.
+1. `rsync`s `index.html` and `style.css` to `/var/www/<domain>` on the EC2
+   instance over SSH.
+2. Reloads Nginx.
 
-Every step is idempotent and derived from the single `DOMAIN` secret, so a fresh
-EC2 instance goes from bare to live with one push, and pointing the site at a new
-domain is just a secrets change.
+Nginx installation and the SSL certificate are handled by your server-side setup
+scripts — the workflow only deploys the static files.
 
 ### Setup
 
