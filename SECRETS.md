@@ -2,7 +2,18 @@
 
 The [deploy workflow](.github/workflows/deploy.yml) syncs `index.html` and
 `style.css` to the Nginx web root on your EC2 instance over SSH, then reloads
-Nginx. To make it run, add the following **repository secrets**.
+Nginx. The web root and Nginx config are **derived from the domain** you
+provide:
+
+| Derived from `DOMAIN` | Path |
+| --------------------- | ---- |
+| Web root              | `/var/www/<domain>` |
+| Nginx server block    | `/etc/nginx/sites-available/<domain>` (symlinked into `sites-enabled`) |
+
+If no Nginx config exists for the domain yet, the workflow **creates one
+automatically** — an HTTPS config when a Let's Encrypt certificate is already
+present for the domain, otherwise an HTTP-only config you can later upgrade with
+Certbot. To make it run, add the following **repository secrets**.
 
 ## Where to add them
 
@@ -16,7 +27,7 @@ GitHub repo → **Settings** → **Secrets and variables** → **Actions** →
 | `EC2_HOST`       | Public IP **or** domain of the EC2 instance.             | `13.234.56.78` or `profile.example.com`  |
 | `EC2_USER`       | SSH login user on the instance.                          | `ubuntu` (Ubuntu) / `ec2-user` (Amazon Linux) |
 | `EC2_SSH_KEY`    | **Private** SSH key (full PEM contents) that can log in. | contents of `your-key.pem` (see below)   |
-| `EC2_TARGET_DIR` | Nginx web root the files are served from.                | `/var/www/profile.example.com`           |
+| `DOMAIN`         | Domain to serve. Drives the web root **and** the Nginx config name. | `profile.example.com`           |
 
 ## Optional secrets
 
@@ -50,45 +61,51 @@ MIIEpQIBAAKCAQEA...
 > `EC2_USER` on the instance. If you launched the instance with this key pair,
 > that's already the case.
 
-### `EC2_TARGET_DIR` — the web root
+### `DOMAIN` — the domain to serve
 
-This must match the `root` directive in your Nginx server block for the domain,
-e.g. in `/etc/nginx/sites-available/profile.example.com`:
+Just the bare domain, e.g. `profile.example.com` (no `https://`, no trailing
+slash). The workflow uses it to derive everything:
 
-```nginx
-server {
-    server_name profile.example.com;
-    root /var/www/profile.example.com;   # <-- this is EC2_TARGET_DIR
-    index index.html;
-    # ... SSL config managed by Certbot ...
-}
-```
+- **Web root:** `/var/www/profile.example.com`
+- **Nginx config:** `/etc/nginx/sites-available/profile.example.com`, symlinked
+  into `sites-enabled/`
+- **SSL paths** (when present): `/etc/letsencrypt/live/profile.example.com/`
+
+The generated server block also responds to the `www.` variant. If a config for
+the domain already exists, the workflow **leaves it untouched** and only updates
+the files — so any Certbot-managed config you already have is safe.
 
 ---
 
 ## One-time server preparation
 
-Run these **on the EC2 instance** so the deploy user can write the web root and
-reload Nginx without an interactive password.
+The workflow creates the web root and Nginx config for you, but it needs to run
+a few commands with `sudo` **without an interactive password prompt**. Grant
+exactly those commands on the EC2 instance:
 
 ```bash
-# 1. Create the web root and let your deploy user own it
-sudo mkdir -p /var/www/profile.example.com
-sudo chown -R $USER:$USER /var/www/profile.example.com
-
-# 2. Allow Nginx reload without a password prompt (needed by the workflow)
-echo "$USER ALL=(ALL) NOPASSWD: /usr/sbin/nginx, /bin/systemctl reload nginx" \
-  | sudo tee /etc/sudoers.d/deploy-nginx
+# Allow the deploy user to manage the web root, the Nginx config, and reloads
+# without a password prompt (these are the only sudo commands the workflow runs)
+sudo tee /etc/sudoers.d/deploy-nginx >/dev/null <<EOF
+$USER ALL=(ALL) NOPASSWD: /bin/mkdir, /bin/chown, /usr/bin/tee, /bin/ln, /usr/sbin/nginx, /bin/systemctl reload nginx
+EOF
 sudo chmod 440 /etc/sudoers.d/deploy-nginx
 
-# 3. Make sure rsync is installed (GitHub runner already has it)
+# Make sure rsync is installed (GitHub runner already has it)
 sudo apt-get update && sudo apt-get install -y rsync   # Ubuntu
 # sudo yum install -y rsync                              # Amazon Linux
 ```
 
-> Nginx installation and SSL certificates (Certbot / Let's Encrypt) are assumed
-> to be **already configured** for the domain — the workflow only updates the
-> static files and reloads Nginx.
+> **Paths differ by distro.** On Amazon Linux some binaries live under
+> `/usr/bin` (e.g. `/usr/bin/mkdir`, `/usr/bin/chown`, `/usr/bin/ln`). Run
+> `which mkdir chown tee ln nginx systemctl` and adjust the sudoers line to
+> match, or use a broader `NOPASSWD: ALL` for a dedicated deploy user.
+
+> Nginx itself and SSL certificates (Certbot / Let's Encrypt) are assumed to be
+> **already installed**. If the certificate for the domain exists when the
+> workflow first runs, it generates an HTTPS config automatically; otherwise it
+> generates an HTTP-only config and you can enable TLS later with
+> `sudo certbot --nginx -d <domain>`.
 
 ---
 

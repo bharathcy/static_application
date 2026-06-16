@@ -1,7 +1,11 @@
 name: Deploy to AWS EC2
 
-# Deploy the static site to an Nginx web root on an EC2 instance
-# whenever changes land on main (or when run manually).
+# Deploy the static site to an Nginx web root on an EC2 instance.
+# The web root and Nginx config are derived from the DOMAIN secret:
+#   web root  ->  /var/www/<domain>
+#   config    ->  /etc/nginx/sites-available/<domain>
+# If a config for the domain doesn't exist yet, it is created automatically
+# (with HTTPS when a Let's Encrypt certificate is present for the domain).
 on:
   push:
     branches: [main]
@@ -14,6 +18,12 @@ on:
 concurrency:
   group: deploy-ec2
   cancel-in-progress: true
+
+env:
+  EC2_HOST: ${{ secrets.EC2_HOST }}
+  EC2_USER: ${{ secrets.EC2_USER }}
+  EC2_PORT: ${{ secrets.EC2_PORT }}
+  DOMAIN: ${{ secrets.DOMAIN }}
 
 jobs:
   deploy:
@@ -30,9 +40,74 @@ jobs:
           echo "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
           ssh-keyscan -p "${EC2_PORT:-22}" -H "$EC2_HOST" >> ~/.ssh/known_hosts 2>/dev/null
-        env:
-          EC2_HOST: ${{ secrets.EC2_HOST }}
-          EC2_PORT: ${{ secrets.EC2_PORT }}
+
+      - name: Ensure web root and Nginx config for domain
+        run: |
+          ssh -i ~/.ssh/deploy_key -p "${EC2_PORT:-22}" \
+            "${EC2_USER}@${EC2_HOST}" "DOMAIN='${DOMAIN}' bash -s" <<'REMOTE'
+            set -euo pipefail
+            WEBROOT="/var/www/${DOMAIN}"
+            AVAIL="/etc/nginx/sites-available/${DOMAIN}"
+            ENABLED="/etc/nginx/sites-enabled/${DOMAIN}"
+            CERT="/etc/letsencrypt/live/${DOMAIN}/fullchain.pem"
+            KEY="/etc/letsencrypt/live/${DOMAIN}/privkey.pem"
+
+            # 1. Web root
+            sudo mkdir -p "$WEBROOT"
+            sudo chown -R "$USER":"$USER" "$WEBROOT"
+
+            # 2. Create the server block only if it doesn't already exist
+            if [ ! -f "$AVAIL" ]; then
+              echo "Creating Nginx config for ${DOMAIN}"
+              if [ -f "$CERT" ] && [ -f "$KEY" ]; then
+                echo "  -> SSL certificate found, generating HTTPS config"
+                sudo tee "$AVAIL" >/dev/null <<EOF
+          server {
+              listen 80;
+              listen [::]:80;
+              server_name ${DOMAIN} www.${DOMAIN};
+              return 301 https://\$host\$request_uri;
+          }
+
+          server {
+              listen 443 ssl http2;
+              listen [::]:443 ssl http2;
+              server_name ${DOMAIN} www.${DOMAIN};
+
+              root ${WEBROOT};
+              index index.html;
+
+              ssl_certificate     ${CERT};
+              ssl_certificate_key ${KEY};
+
+              location / {
+                  try_files \$uri \$uri/ =404;
+              }
+          }
+          EOF
+              else
+                echo "  -> No SSL certificate yet, generating HTTP-only config"
+                echo "     (run: sudo certbot --nginx -d ${DOMAIN} to enable HTTPS)"
+                sudo tee "$AVAIL" >/dev/null <<EOF
+          server {
+              listen 80;
+              listen [::]:80;
+              server_name ${DOMAIN} www.${DOMAIN};
+
+              root ${WEBROOT};
+              index index.html;
+
+              location / {
+                  try_files \$uri \$uri/ =404;
+              }
+          }
+          EOF
+              fi
+              sudo ln -sf "$AVAIL" "$ENABLED"
+            else
+              echo "Nginx config for ${DOMAIN} already exists, leaving it unchanged"
+            fi
+          REMOTE
 
       - name: Deploy files to EC2 via rsync
         run: |
@@ -43,26 +118,16 @@ jobs:
             --exclude='README.md' \
             --exclude='SECRETS.md' \
             index.html style.css \
-            "${EC2_USER}@${EC2_HOST}:${EC2_TARGET_DIR}/"
-        env:
-          EC2_HOST: ${{ secrets.EC2_HOST }}
-          EC2_USER: ${{ secrets.EC2_USER }}
-          EC2_PORT: ${{ secrets.EC2_PORT }}
-          EC2_TARGET_DIR: ${{ secrets.EC2_TARGET_DIR }}
+            "${EC2_USER}@${EC2_HOST}:/var/www/${DOMAIN}/"
 
-      - name: Reload Nginx
+      - name: Validate and reload Nginx
         run: |
           ssh -i ~/.ssh/deploy_key -p "${EC2_PORT:-22}" \
             "${EC2_USER}@${EC2_HOST}" \
             "sudo nginx -t && sudo systemctl reload nginx"
-        env:
-          EC2_HOST: ${{ secrets.EC2_HOST }}
-          EC2_USER: ${{ secrets.EC2_USER }}
-          EC2_PORT: ${{ secrets.EC2_PORT }}
 
       - name: Deployment summary
         run: |
           echo "### ✅ Deployed to EC2" >> "$GITHUB_STEP_SUMMARY"
-          echo "Static site synced to \`${EC2_TARGET_DIR}\` and Nginx reloaded." >> "$GITHUB_STEP_SUMMARY"
-        env:
-          EC2_TARGET_DIR: ${{ secrets.EC2_TARGET_DIR }}
+          echo "Static site synced to \`/var/www/${DOMAIN}\` and Nginx reloaded." >> "$GITHUB_STEP_SUMMARY"
+          echo "Site: https://${DOMAIN}" >> "$GITHUB_STEP_SUMMARY"
