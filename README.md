@@ -7,13 +7,15 @@ auto-deployed to an **AWS EC2** instance (Nginx + HTTPS) via **GitHub Actions**.
 
 ```
 static_application/
-├── index.html                  # Profile page markup
-├── style.css                   # Custom styling (gradients, timeline, skills)
-├── README.md                   # This file
-├── SECRETS.md                  # GitHub secrets needed for deployment
+├── index.html                       # Profile page markup
+├── style.css                        # Custom styling (gradients, timeline, skills)
+├── Dockerfile                       # nginx:alpine image serving the site
+├── README.md                        # This file
+├── SECRETS.md                       # GitHub secrets needed for the workflows
 └── .github/
     └── workflows/
-        └── deploy.yml          # CI/CD: deploy to EC2 on push to main
+        ├── deploy-without-docker.yml  # CI/CD: rsync to EC2 + reload Nginx
+        └── docker-publish.yml         # CI/CD: build & push image to Docker Hub
 ```
 
 ## 🚀 Deployment
@@ -33,7 +35,21 @@ scripts — the workflow only deploys the static files.
 2. Run the one-time server preparation steps in that same file.
 3. Push to `main` — the workflow does the rest.
 
-## 🛠️ Local preview
+## 🐳 Docker
+
+The [`docker-publish.yml`](.github/workflows/docker-publish.yml) workflow builds
+the image and pushes it to Docker Hub as `<user>/devops-profile` on every push to
+`main` (needs `DOCKERHUB_USERNAME` / `DOCKERHUB_TOKEN` secrets).
+
+Run it locally:
+
+```bash
+docker build -t devops-profile .
+docker run -p 8080:80 devops-profile
+# then visit http://localhost:8080
+```
+
+## 🛠️ Local preview (no Docker)
 
 It's a static site — just open `index.html` in a browser, or serve it:
 
@@ -47,4 +63,4 @@ python3 -m http.server 8080
 - Bootstrap 5.3 + Bootstrap Icons (via CDN)
 - Inter font (Google Fonts)
 - Custom CSS
-- GitHub Actions · AWS EC2 · Nginx · Let's Encrypt
+- GitHub Actions · AWS EC2 · Nginx · Let's Encrypt · Docker · Docker Hub

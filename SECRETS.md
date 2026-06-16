@@ -1,23 +1,33 @@
-# GitHub Actions Secrets — EC2 Deployment
+# GitHub Actions Secrets
 
-The [deploy workflow](.github/workflows/deploy.yml) syncs `index.html` and
-`style.css` to `/var/www/<domain>` on your EC2 instance over SSH, then reloads
-Nginx. Nginx setup and SSL are handled by your server-side scripts. Add the
-following **repository secrets** to make it run.
+Two workflows ship this site:
+
+- **[deploy-without-docker.yml](.github/workflows/deploy-without-docker.yml)** —
+  rsyncs `index.html` / `style.css` to `/var/www/<domain>` on EC2 and reloads
+  Nginx (Nginx + SSL handled by your server scripts).
+- **[docker-publish.yml](.github/workflows/docker-publish.yml)** — builds the
+  Docker image and pushes it to Docker Hub.
 
 ## Where to add them
 
 GitHub repo → **Settings** → **Secrets and variables** → **Actions** →
 **New repository secret**. Add each name/value pair below.
 
-## Required secrets
+## Required secrets — EC2 deploy
 
 | Secret name      | Description                                              | Example                                  |
 | ---------------- | -------------------------------------------------------- | ---------------------------------------- |
 | `EC2_HOST`       | Public IP **or** domain of the EC2 instance.             | `13.234.56.78` or `profile.example.com`  |
 | `EC2_USER`       | SSH login user on the instance.                          | `ubuntu` (Ubuntu) / `ec2-user` (Amazon Linux) |
 | `EC2_SSH_KEY`    | **Private** SSH key (full PEM contents) that can log in. | contents of `your-key.pem` (see below)   |
-| `DOMAIN`         | Domain to serve. Drives the web root **and** the Nginx config name. | `profile.example.com`           |
+| `DOMAIN`         | Domain to serve. Drives the web root path.               | `profile.example.com`                    |
+
+## Required secrets — Docker Hub publish
+
+| Secret name          | Description                                                      | Example         |
+| -------------------- | --------------------------------------------------------------- | --------------- |
+| `DOCKERHUB_USERNAME` | Your Docker Hub username.                                        | `bharathcy`     |
+| `DOCKERHUB_TOKEN`    | A Docker Hub **access token** (Account Settings → Security → New Access Token), *not* your password. | `dckr_pat_...`  |
 
 ## Optional secrets
 
