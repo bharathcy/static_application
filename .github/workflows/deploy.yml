@@ -32,6 +32,20 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Validate required secrets
+        run: |
+          missing=()
+          [ -z "$EC2_HOST" ] && missing+=("EC2_HOST")
+          [ -z "$EC2_USER" ] && missing+=("EC2_USER")
+          [ -z "$DOMAIN" ]   && missing+=("DOMAIN")
+          [ -z "${{ secrets.EC2_SSH_KEY }}" ] && missing+=("EC2_SSH_KEY")
+          if [ ${#missing[@]} -gt 0 ]; then
+            echo "::error::Missing required repository secret(s): ${missing[*]}"
+            echo "Add them under Settings → Secrets and variables → Actions. See SECRETS.md."
+            exit 1
+          fi
+          echo "All required secrets present. Domain: $DOMAIN"
+
       - name: Set up SSH key
         run: |
           mkdir -p ~/.ssh
@@ -44,6 +58,7 @@ jobs:
           ssh -i ~/.ssh/deploy_key -p "${EC2_PORT:-22}" \
             "${EC2_USER}@${EC2_HOST}" "DOMAIN='${DOMAIN}' bash -s" <<'REMOTE'
             set -euo pipefail
+            : "${DOMAIN:?DOMAIN is empty — set the DOMAIN repository secret}"
             WEBROOT="/var/www/${DOMAIN}"
             AVAIL="/etc/nginx/sites-available/${DOMAIN}"
             ENABLED="/etc/nginx/sites-enabled/${DOMAIN}"
