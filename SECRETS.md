@@ -79,33 +79,29 @@ the files — so any Certbot-managed config you already have is safe.
 
 ## One-time server preparation
 
-The workflow creates the web root and Nginx config for you, but it needs to run
-a few commands with `sudo` **without an interactive password prompt**. Grant
-exactly those commands on the EC2 instance:
+The workflow does the rest — it **installs Nginx** (if missing), creates the web
+root, writes the server block, and reloads Nginx. It just needs the deploy user
+to run `sudo` **without an interactive password prompt** (it installs packages,
+edits `nginx.conf`, and manages the site). Grant that once on the instance:
 
 ```bash
-# Allow the deploy user to manage the web root, the Nginx config, and reloads
-# without a password prompt (these are the only sudo commands the workflow runs)
-sudo tee /etc/sudoers.d/deploy-nginx >/dev/null <<EOF
-$USER ALL=(ALL) NOPASSWD: /bin/mkdir, /bin/chown, /usr/bin/tee, /bin/ln, /usr/sbin/nginx, /bin/systemctl reload nginx
+# Allow the deploy user to run sudo without a password prompt.
+# Use a DEDICATED deploy user for this — it is broad by design so a single
+# push can install and configure everything.
+sudo tee /etc/sudoers.d/deploy >/dev/null <<EOF
+$USER ALL=(ALL) NOPASSWD: ALL
 EOF
-sudo chmod 440 /etc/sudoers.d/deploy-nginx
-
-# Make sure rsync is installed (GitHub runner already has it)
-sudo apt-get update && sudo apt-get install -y rsync   # Ubuntu
-# sudo yum install -y rsync                              # Amazon Linux
+sudo chmod 440 /etc/sudoers.d/deploy
 ```
 
-> **Paths differ by distro.** On Amazon Linux some binaries live under
-> `/usr/bin` (e.g. `/usr/bin/mkdir`, `/usr/bin/chown`, `/usr/bin/ln`). Run
-> `which mkdir chown tee ln nginx systemctl` and adjust the sudoers line to
-> match, or use a broader `NOPASSWD: ALL` for a dedicated deploy user.
+That's it. Nothing else is required — no pre-installed Nginx, no pre-created web
+root or config.
 
-> Nginx itself and SSL certificates (Certbot / Let's Encrypt) are assumed to be
-> **already installed**. If the certificate for the domain exists when the
-> workflow first runs, it generates an HTTPS config automatically; otherwise it
-> generates an HTTP-only config and you can enable TLS later with
-> `sudo certbot --nginx -d <domain>`.
+> **SSL:** if a Let's Encrypt certificate already exists for the domain
+> (`/etc/letsencrypt/live/<domain>/`), the workflow writes an HTTPS config that
+> uses it. If not, it writes an HTTP-only config; enable TLS afterwards with
+> `sudo certbot --nginx -d <domain>` and the next push picks up the cert
+> automatically.
 
 ---
 

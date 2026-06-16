@@ -18,18 +18,20 @@ static_application/
 
 ## 🚀 Deployment
 
-On every push to `main` (or a manual trigger), GitHub Actions:
+A single push to `main` (or a manual trigger) provisions everything. GitHub
+Actions:
 
 1. Connects to the EC2 instance over SSH.
-2. Ensures the web root (`/var/www/<domain>`) and an Nginx server block for the
-   `DOMAIN` exist — **creating the config automatically** if it's missing
-   (HTTPS when a Let's Encrypt cert is present, otherwise HTTP-only).
-3. Syncs `index.html` and `style.css` into the web root with `rsync`.
-4. Validates the Nginx config and reloads it.
+2. **Installs Nginx** if it isn't already present.
+3. Creates the web root (`/var/www/<domain>`) and **writes the Nginx server
+   block** for the `DOMAIN` — HTTPS when a Let's Encrypt cert is present for the
+   domain, otherwise HTTP-only.
+4. Syncs `index.html` and `style.css` into the web root with `rsync`.
+5. Validates the Nginx config and reloads it.
 
-Everything is derived from the single `DOMAIN` secret, so pointing the site at a
-new domain is just a secrets change. The site is served over HTTPS using the SSL
-certificate configured on the instance for that domain.
+Every step is idempotent and derived from the single `DOMAIN` secret, so a fresh
+EC2 instance goes from bare to live with one push, and pointing the site at a new
+domain is just a secrets change.
 
 ### Setup
 
