@@ -10,12 +10,14 @@ static_application/
 ├── index.html                       # Profile page markup
 ├── style.css                        # Custom styling (gradients, timeline, skills)
 ├── Dockerfile                       # nginx:alpine image serving the site
+├── sonar-project.properties         # SonarQube scan config
 ├── README.md                        # This file
 ├── SECRETS.md                       # GitHub secrets needed for the workflows
 └── .github/
     └── workflows/
         ├── deploy-without-docker.yml  # CI/CD: rsync to EC2 + reload Nginx
-        └── docker-publish.yml         # CI/CD: build & push image to Docker Hub
+        ├── docker-publish.yml         # CI/CD: build & push image to Docker Hub
+        └── sonarqube.yml              # CI: SonarQube code-quality analysis
 ```
 
 ## 🚀 Deployment
@@ -63,4 +65,4 @@ python3 -m http.server 8080
 - Bootstrap 5.3 + Bootstrap Icons (via CDN)
 - Inter font (Google Fonts)
 - Custom CSS
-- GitHub Actions · AWS EC2 · Nginx · Let's Encrypt · Docker · Docker Hub
+- GitHub Actions · AWS EC2 · Nginx · Let's Encrypt · Docker · Docker Hub · SonarQube

@@ -29,6 +29,16 @@ GitHub repo → **Settings** → **Secrets and variables** → **Actions** →
 | `DOCKERHUB_USERNAME` | Your Docker Hub username.                                        | `bharathcy`     |
 | `DOCKERHUB_TOKEN`    | A Docker Hub **access token** (Account Settings → Security → New Access Token), *not* your password. | `dckr_pat_...`  |
 
+## Required secrets — SonarQube analysis
+
+| Secret name      | Description                                                            | Example                          |
+| ---------------- | --------------------------------------------------------------------- | -------------------------------- |
+| `SONAR_TOKEN`    | Analysis token generated in SonarQube (My Account → Security → Tokens). | `sqp_xxx...` / `squ_xxx...`      |
+| `SONAR_HOST_URL` | URL of your SonarQube server. For SonarQube Cloud use `https://sonarcloud.io`. | `https://sonarqube.example.com` |
+
+> Using **SonarQube Cloud**? Also uncomment `sonar.organization` in
+> `sonar-project.properties` and set it to your org key.
+
 ## Optional secrets
 
 | Secret name | Description                                  | Default |
