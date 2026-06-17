@@ -13,6 +13,7 @@ jobs:
 
       - name: Deploy static files & reload Nginx
         run: |
+          mkdir -p ~/.ssh
           echo "${{ secrets.EC2_SSH_KEY }}" > key && chmod 600 key
           ssh-keyscan -H "${{ secrets.EC2_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null
           rsync -az --delete -e "ssh -i key" index.html style.css \
