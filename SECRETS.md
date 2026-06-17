@@ -5,8 +5,8 @@ Two workflows ship this site:
 - **[deploy-without-docker.yml](.github/workflows/deploy-without-docker.yml)** —
   rsyncs `index.html` / `style.css` to `/var/www/<domain>` on EC2 and reloads
   Nginx (Nginx + SSL handled by your server scripts).
-- **[docker-publish.yml](.github/workflows/docker-publish.yml)** — builds the
-  Docker image and pushes it to Docker Hub.
+- **[ci-cd.yml](.github/workflows/ci-cd.yml)** — SonarQube scan + Quality Gate →
+  Docker build → Trivy image scan → push to Docker Hub.
 
 ## Where to add them
 

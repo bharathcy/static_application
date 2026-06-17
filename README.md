@@ -15,10 +15,22 @@ static_application/
 ├── SECRETS.md                       # GitHub secrets needed for the workflows
 └── .github/
     └── workflows/
-        ├── deploy-without-docker.yml  # CI/CD: rsync to EC2 + reload Nginx
-        ├── docker-publish.yml         # CI/CD: build & push image to Docker Hub
-        └── sonarqube.yml              # CI: SonarQube code-quality analysis
+        ├── deploy-without-docker.yml  # CD: rsync to EC2 + reload Nginx
+        └── ci-cd.yml                  # CI/CD: Sonar gate → build → Trivy → push
 ```
+
+## 🔁 Pipeline (`ci-cd.yml`)
+
+```
+SonarQube scan ─▶ Quality Gate ─▶ docker build ─▶ Trivy image scan ─▶ docker push
+   (source)         (blocks)        (local load)     (blocks on CVE)     (Docker Hub)
+```
+
+- **Scan source before building** — if the Quality Gate fails, nothing builds.
+- **Build, then scan the image with Trivy** for HIGH/CRITICAL CVEs. The image is
+  loaded locally and **only pushed if Trivy passes**, so a vulnerable image never
+  reaches Docker Hub.
+- On **pull requests** only the SonarQube gate runs (no build/publish).
 
 ## 🚀 Deployment
 
@@ -39,9 +51,9 @@ scripts — the workflow only deploys the static files.
 
 ## 🐳 Docker
 
-The [`docker-publish.yml`](.github/workflows/docker-publish.yml) workflow builds
-the image and pushes it to Docker Hub as `<user>/devops-profile` on every push to
-`main` (needs `DOCKERHUB_USERNAME` / `DOCKERHUB_TOKEN` secrets).
+The [`ci-cd.yml`](.github/workflows/ci-cd.yml) pipeline builds the image, scans
+it with Trivy, and pushes it to Docker Hub as `<user>/devops-profile` on every
+push to `main` (needs `DOCKERHUB_USERNAME` / `DOCKERHUB_TOKEN` secrets).
 
 Run it locally:
 
